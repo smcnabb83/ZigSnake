@@ -1,0 +1,4 @@
+zig-cache/
+zig-output/
+zig-out/
+targets.txt
