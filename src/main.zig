@@ -8,7 +8,6 @@ const Pos = struct {
 };
 
 const FieldState = enum { empty, snake, apple };
-
 const Direction = enum { up, down, left, right };
 const GameState = enum { start, playing, over, quit, paused };
 const Input = enum { left, right, up, down, paused, select, cancel, any, none };
@@ -23,15 +22,15 @@ const GameStateData = struct {
     state: GameState,
     score: i32,
     nextStepTime: u32,
-    field: [settings.play_area_size]FieldState,
-    snake: [settings.play_area_size]i32,
-    fn AdvanceSnake(self: *GameStateData, growSnake: bool, newHead: i32) void {
+    field: []FieldState,
+    snake: []usize,
+    fn AdvanceSnake(self: *GameStateData, growSnake: bool, newHead: usize) void {
         var endIdx: usize = 0;
         for (0..self.snake.len - 1) |idx| {
             if (!growSnake) {
                 self.snake[idx] = self.snake[idx + 1];
             }
-            if (self.snake[idx] == -1) {
+            if (self.snake[idx] == std.math.maxInt(usize)) {
                 endIdx = idx;
                 break;
             }
@@ -40,7 +39,7 @@ const GameStateData = struct {
         self.snake_head_idx = endIdx;
     }
     fn SnakeHeadPos(self: *GameStateData) Pos {
-        var snakeHeadIdx: usize = @intCast(self.snake[self.snake_head_idx]);
+        var snakeHeadIdx = self.snake[self.snake_head_idx];
         return Pos{ .x = getXFromIndex(snakeHeadIdx), .y = getYFromIndex(snakeHeadIdx) };
     }
 };
@@ -228,15 +227,15 @@ pub fn main() !void {
     for (0..playArea.len) |idx| {
         playArea[idx] = FieldState.empty;
     }
-    var snake: [settings.play_area_size]i32 = undefined;
+    var snake: [settings.play_area_size]usize = undefined;
     for (0..snake.len) |idx| {
-        snake[idx] = -1;
+        snake[idx] = std.math.maxInt(usize);
     }
     var play_area_center_x = @divFloor(settings.play_area_x, 2);
     var play_area_center_y = @divFloor(settings.play_area_y, 2);
     var snake_index: usize = @intCast(getIndexFromXY(play_area_center_x, play_area_center_y));
     snake[0] = @intCast(snake_index);
-    var state = GameStateData{ .score = 0, .field = playArea, .snake_dir = Direction.up, .snake_last_moved_dir = Direction.up, .snake = snake, .snake_head_idx = 0, .state = GameState.playing, .nextStepTime = time + settings.step_time, .input = Input.none };
+    var state = GameStateData{ .score = 0, .field = &playArea, .snake_dir = Direction.up, .snake_last_moved_dir = Direction.up, .snake = &snake, .snake_head_idx = 0, .state = GameState.playing, .nextStepTime = time + settings.step_time, .input = Input.none };
 
     state.field[snake_index] = FieldState.snake;
 
@@ -247,6 +246,9 @@ pub fn main() !void {
     );
     if (apple_index == snake_index) {
         apple_index += 1;
+    }
+    if (apple_index >= settings.play_area_size) {
+        apple_index = 0;
     }
     state.field[apple_index] = FieldState.apple;
 
