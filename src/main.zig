@@ -1,14 +1,6 @@
 const std = @import("std");
 const SDL = @import("sdl2");
-
-const play_area_x: i32 = 25;
-const play_area_y: i32 = 25;
-const step_time: u32 = 150;
-const border_color: SDL.Color = SDL.Color{ .r = 0, .g = 0, .b = 100, .a = 255 };
-const snake_color: SDL.Color = SDL.Color{ .r = 0, .g = 200, .b = 0, .a = 255 };
-const apple_color: SDL.Color = SDL.Color{ .r = 200, .g = 0, .b = 0, .a = 255 };
-const background_color: SDL.Color = SDL.Color{ .r = 0, .g = 0, .b = 0, .a = 255 };
-const font_color: SDL.Color = SDL.Color{ .r = 255, .g = 255, .b = 255, .a = 255 };
+const settings = @import("./constants.zig");
 
 const Pos = struct {
     x: i32,
@@ -17,7 +9,6 @@ const Pos = struct {
 
 const FieldState = enum { empty, snake, apple };
 
-const RandGen = std.rand.DefaultPrng;
 const Direction = enum { up, down, left, right };
 const GameState = enum { start, playing, over, quit, paused };
 const Input = enum { left, right, up, down, paused, select, cancel, any, none };
@@ -32,8 +23,8 @@ const GameStateData = struct {
     state: GameState,
     score: i32,
     nextStepTime: u32,
-    field: [play_area_x * play_area_y]FieldState,
-    snake: [play_area_x * play_area_y]i32,
+    field: [settings.play_area_size]FieldState,
+    snake: [settings.play_area_size]i32,
     fn AdvanceSnake(self: *GameStateData, growSnake: bool, newHead: i32) void {
         var endIdx: usize = 0;
         for (0..self.snake.len - 1) |idx| {
@@ -63,20 +54,20 @@ const RenderData = struct {
 };
 
 fn getXFromIndex(index: usize) i32 {
-    return @intCast(index % play_area_x);
+    return @intCast(index % settings.play_area_x);
 }
 
 fn getYFromIndex(index: usize) i32 {
     var idx: i32 = @intCast(index);
-    return @divFloor(idx, play_area_x);
+    return @divFloor(idx, settings.play_area_x);
 }
 
 fn getIndexFromXY(x: i32, y: i32) usize {
-    return @intCast(y * play_area_x + x);
+    return @intCast(y * settings.play_area_x + x);
 }
 
 fn updateAndRenderGameOver(input: Input, renderer: *SDL.Renderer, renderData: RenderData, textSize: SDL.Size, texture: *SDL.Texture) !GameState {
-    try renderer.setColor(background_color);
+    try renderer.setColor(settings.background_color);
     try renderer.clear();
     var rect = SDL.Rectangle{ .x = 0, .y = 0, .width = 0, .height = 0 };
     rect.width = textSize.width;
@@ -92,7 +83,7 @@ fn updateAndRenderGameOver(input: Input, renderer: *SDL.Renderer, renderData: Re
 }
 
 fn updateAndRenderPaused(input: Input, renderer: *SDL.Renderer, renderData: RenderData, textSize: SDL.Size, texture: *SDL.Texture) !GameState {
-    try renderer.setColor(background_color);
+    try renderer.setColor(settings.background_color);
     try renderer.clear();
     var rect = SDL.Rectangle{ .x = 0, .y = 0, .width = 0, .height = 0 };
     rect.width = textSize.width;
@@ -129,7 +120,7 @@ fn updateAndRenderGame(time: u32, state: *GameStateData, rand: *std.rand.Xoshiro
     }
 
     if (time >= state.nextStepTime) {
-        state.nextStepTime = time + step_time;
+        state.nextStepTime = time + settings.step_time;
         //  move snake head
         var headPos = state.SnakeHeadPos();
         switch (state.snake_dir) {
@@ -138,7 +129,7 @@ fn updateAndRenderGame(time: u32, state: *GameStateData, rand: *std.rand.Xoshiro
             .left => headPos.x -= 1,
             .right => headPos.x += 1,
         }
-        if (headPos.x < 0 or headPos.x > play_area_x - 1 or headPos.y < 0 or headPos.y > play_area_y - 1) {
+        if (headPos.x < 0 or headPos.x > settings.play_area_x - 1 or headPos.y < 0 or headPos.y > settings.play_area_y - 1) {
             return GameState.over;
         }
 
@@ -149,9 +140,9 @@ fn updateAndRenderGame(time: u32, state: *GameStateData, rand: *std.rand.Xoshiro
             FieldState.apple => {
                 growSnake = true;
                 state.score += 1;
-                var randIndex: usize = rand.random().intRangeAtMost(usize, 0, play_area_x * play_area_y - 1);
+                var randIndex: usize = rand.random().intRangeAtMost(usize, 0, settings.play_area_size - 1);
                 while (state.field[randIndex] != FieldState.empty) {
-                    randIndex = rand.random().intRangeAtMost(usize, 0, play_area_x * play_area_y - 1);
+                    randIndex = rand.random().intRangeAtMost(usize, 0, settings.play_area_size - 1);
                 }
                 state.field[randIndex] = FieldState.apple;
             },
@@ -169,18 +160,18 @@ fn updateAndRenderGame(time: u32, state: *GameStateData, rand: *std.rand.Xoshiro
     rect.width = renderData.renderChunkSizeX;
     rect.height = renderData.renderChunkSizeY;
 
-    try renderer.setColor(border_color);
+    try renderer.setColor(settings.border_color);
     try renderer.clear();
     for (state.field, 0..) |value, idx| {
         var index: usize = idx;
         rect.x = getXFromIndex(index) * renderData.renderChunkSizeX + renderData.startRenderX;
         rect.y = getYFromIndex(index) * renderData.renderChunkSizeY + renderData.startRenderY;
         if (value == FieldState.snake) {
-            try renderer.setColor(snake_color);
+            try renderer.setColor(settings.snake_color);
         } else if (value == FieldState.apple) {
-            try renderer.setColor(apple_color);
+            try renderer.setColor(settings.apple_color);
         } else {
-            try renderer.setColor(background_color);
+            try renderer.setColor(settings.background_color);
         }
         try renderer.fillRect(rect);
     }
@@ -194,15 +185,15 @@ fn generateRenderData(data: *RenderData, window: *SDL.Window) void {
     data.renderSize = @min(size.width, size.height);
     data.startRenderX = @divFloor((size.width - data.renderSize), 2);
     data.startRenderY = @divFloor((size.height - data.renderSize), 2);
-    data.renderChunkSizeX = @divFloor(data.renderSize, play_area_x);
-    data.renderChunkSizeY = @divFloor(data.renderSize, play_area_y);
+    data.renderChunkSizeX = @divFloor(data.renderSize, settings.play_area_x);
+    data.renderChunkSizeY = @divFloor(data.renderSize, settings.play_area_y);
 }
 
 fn printAllocStringToTexture(allocator: std.mem.Allocator, renderer: SDL.Renderer, comptime str: []const u8, font: SDL.ttf.Font, args: anytype) !PrintStringToTextureReturn {
     var strSlice = try std.fmt.allocPrintZ(allocator, str, args);
     var size = try font.sizeText(strSlice);
     defer std.heap.page_allocator.free(strSlice);
-    var sfc = try font.renderTextSolid(strSlice, font_color);
+    var sfc = try font.renderTextSolid(strSlice, settings.font_color);
     defer sfc.destroy();
     var texture = try SDL.createTextureFromSurface(renderer, sfc);
     return PrintStringToTextureReturn{ .texture = texture, .size = size };
@@ -214,7 +205,7 @@ pub fn main() !void {
     try SDL.ttf.init();
     defer SDL.ttf.quit();
 
-    var font = try SDL.ttf.openFont("/usr/share/fonts/truetype/ubuntu/Ubuntu-L.ttf", 24);
+    var font = try SDL.ttf.openFont("/usr/share/fonts/truetype/ubuntu/Ubuntu-M.ttf", 24);
     defer font.close();
 
     var window = try SDL.createWindow(
@@ -230,19 +221,19 @@ pub fn main() !void {
     var renderer = try SDL.createRenderer(window, null, .{ .accelerated = true });
     var time: u32 = SDL.getTicks();
     defer renderer.destroy();
-    var rand = RandGen.init(@intCast(std.time.timestamp()));
+    var rand = settings.RandGen.init(@intCast(std.time.timestamp()));
     //  initialize game state
 
-    var playArea: [play_area_x * play_area_y]FieldState = undefined;
+    var playArea: [settings.play_area_size]FieldState = undefined;
     for (0..playArea.len) |idx| {
         playArea[idx] = FieldState.empty;
     }
-    var snake: [play_area_x * play_area_y]i32 = undefined;
+    var snake: [settings.play_area_size]i32 = undefined;
     for (0..snake.len) |idx| {
         snake[idx] = -1;
     }
     snake[0] = @intCast(getIndexFromXY(15, 15));
-    var state = GameStateData{ .score = 0, .field = playArea, .snake_dir = Direction.up, .snake_last_moved_dir = Direction.up, .snake = snake, .snake_head_idx = 0, .state = GameState.playing, .nextStepTime = time + step_time, .input = Input.none };
+    var state = GameStateData{ .score = 0, .field = playArea, .snake_dir = Direction.up, .snake_last_moved_dir = Direction.up, .snake = snake, .snake_head_idx = 0, .state = GameState.playing, .nextStepTime = time + settings.step_time, .input = Input.none };
 
     state.field[
         getIndexFromXY(
@@ -295,6 +286,7 @@ pub fn main() !void {
                     var printedTexture = try printAllocStringToTexture(std.heap.page_allocator, renderer, "Game over. Final score: {d} points", font, .{state.score});
                     gameOverTexture = printedTexture.texture;
                     gameOverTextSize = printedTexture.size;
+                    state.input = Input.none;
                 }
                 break :ovr try updateAndRenderGameOver(state.input, &renderer, renderData, gameOverTextSize, &gameOverTexture.?);
             },
