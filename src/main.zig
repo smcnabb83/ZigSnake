@@ -232,22 +232,23 @@ pub fn main() !void {
     for (0..snake.len) |idx| {
         snake[idx] = -1;
     }
-    snake[0] = @intCast(getIndexFromXY(15, 15));
+    var play_area_center_x = @divFloor(settings.play_area_x, 2);
+    var play_area_center_y = @divFloor(settings.play_area_y, 2);
+    var snake_index: usize = @intCast(getIndexFromXY(play_area_center_x, play_area_center_y));
+    snake[0] = @intCast(snake_index);
     var state = GameStateData{ .score = 0, .field = playArea, .snake_dir = Direction.up, .snake_last_moved_dir = Direction.up, .snake = snake, .snake_head_idx = 0, .state = GameState.playing, .nextStepTime = time + settings.step_time, .input = Input.none };
 
-    state.field[
-        getIndexFromXY(
-            15,
-            15,
-        )
-    ] = FieldState.snake;
+    state.field[snake_index] = FieldState.snake;
 
-    state.field[
+    var apple_index =
         getIndexFromXY(
-            rand.random().intRangeAtMost(i32, 0, 14),
-            rand.random().intRangeAtMost(i32, 0, 14),
-        )
-    ] = FieldState.apple;
+        rand.random().intRangeAtMost(i32, 0, settings.play_area_x - 1),
+        rand.random().intRangeAtMost(i32, 0, settings.play_area_y - 1),
+    );
+    if (apple_index == snake_index) {
+        apple_index += 1;
+    }
+    state.field[apple_index] = FieldState.apple;
 
     var gameOverTexture: ?SDL.Texture = null;
     var gameOverTextSize: SDL.Size = undefined;
