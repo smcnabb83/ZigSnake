@@ -1,18 +1,31 @@
 const std = @import("std");
 const SDL = @import("sdl2");
-const settings = @import("./constants.zig");
+const settings = @import("./settings.zig");
+
+// zero is actually a meaningful value in the GameStateData.snake array, so
+// we are using max usize as the empty value. if the fielf array length is ever
+// usize + 1, this breaks.
+const snake_empty = std.math.maxInt(usize);
+
+const FieldState = enum { empty, snake, apple };
+const Direction = enum { up, down, left, right };
+const GameState = enum { playing, over, quit, paused };
+const Input = enum { left, right, up, down, paused, select, cancel, any, none };
+
+const PrintStringToTextureReturn = struct { texture: SDL.Texture, size: SDL.Size };
 
 const Pos = struct {
     x: i32,
     y: i32,
 };
 
-const FieldState = enum { empty, snake, apple };
-const Direction = enum { up, down, left, right };
-const GameState = enum { start, playing, over, quit, paused };
-const Input = enum { left, right, up, down, paused, select, cancel, any, none };
-
-const PrintStringToTextureReturn = struct { texture: SDL.Texture, size: SDL.Size };
+const RenderData = struct {
+    start_render_x: i32,
+    start_render_y: i32,
+    render_chunk_size_x: i32,
+    render_chunk_size_y: i32,
+    render_size: i32,
+};
 
 const GameStateData = struct {
     snake_dir: Direction,
@@ -21,58 +34,50 @@ const GameStateData = struct {
     input: Input,
     state: GameState,
     score: i32,
-    nextStepTime: u32,
+    next_step_time: u32,
     field: []FieldState,
     snake: []usize,
-    fn AdvanceSnake(self: *GameStateData, growSnake: bool, newHead: usize) void {
-        var endIdx: usize = 0;
+    fn advanceSnake(self: *GameStateData, grow_snake: bool, new_head: usize) void {
+        var end_index: usize = 0;
         for (0..self.snake.len - 1) |idx| {
-            if (!growSnake) {
+            if (!grow_snake) {
                 self.snake[idx] = self.snake[idx + 1];
             }
-            if (self.snake[idx] == std.math.maxInt(usize)) {
-                endIdx = idx;
+            if (self.snake[idx] == snake_empty) {
+                end_index = idx;
                 break;
             }
         }
-        self.snake[endIdx] = newHead;
-        self.snake_head_idx = endIdx;
+        self.snake[end_index] = new_head;
+        self.snake_head_idx = end_index;
     }
-    fn SnakeHeadPos(self: *GameStateData) Pos {
+    fn snakeHeadPos(self: *GameStateData) Pos {
         var snakeHeadIdx = self.snake[self.snake_head_idx];
         return Pos{ .x = getXFromIndex(snakeHeadIdx), .y = getYFromIndex(snakeHeadIdx) };
     }
 };
 
-const RenderData = struct {
-    startRenderX: i32,
-    startRenderY: i32,
-    renderChunkSizeX: i32,
-    renderChunkSizeY: i32,
-    renderSize: i32,
-};
-
 fn getXFromIndex(index: usize) i32 {
-    return @intCast(index % settings.play_area_x);
+    return @intCast(index % settings.field_width);
 }
 
 fn getYFromIndex(index: usize) i32 {
     var idx: i32 = @intCast(index);
-    return @divFloor(idx, settings.play_area_x);
+    return @divFloor(idx, settings.field_width);
 }
 
 fn getIndexFromXY(x: i32, y: i32) usize {
-    return @intCast(y * settings.play_area_x + x);
+    return @intCast(y * settings.field_width + x);
 }
 
-fn updateAndRenderGameOver(input: Input, renderer: *SDL.Renderer, renderData: RenderData, textSize: SDL.Size, texture: *SDL.Texture) !GameState {
+fn updateAndRenderGameOver(input: Input, renderer: *SDL.Renderer, render_data: RenderData, text_size: SDL.Size, texture: *SDL.Texture) !GameState {
     try renderer.setColor(settings.background_color);
     try renderer.clear();
     var rect = SDL.Rectangle{ .x = 0, .y = 0, .width = 0, .height = 0 };
-    rect.width = textSize.width;
-    rect.height = textSize.height;
-    rect.x = renderData.startRenderX + @divFloor((renderData.renderSize - rect.width), 2);
-    rect.y = renderData.startRenderY + @divFloor((renderData.renderSize - rect.height), 2);
+    rect.width = text_size.width;
+    rect.height = text_size.height;
+    rect.x = render_data.start_render_x + @divFloor((render_data.render_size - rect.width), 2);
+    rect.y = render_data.start_render_y + @divFloor((render_data.render_size - rect.height), 2);
     try renderer.copy(texture.*, rect, null);
     renderer.present();
     if (input != Input.none) {
@@ -81,14 +86,14 @@ fn updateAndRenderGameOver(input: Input, renderer: *SDL.Renderer, renderData: Re
     return GameState.over;
 }
 
-fn updateAndRenderPaused(input: Input, renderer: *SDL.Renderer, renderData: RenderData, textSize: SDL.Size, texture: *SDL.Texture) !GameState {
+fn updateAndRenderPaused(input: Input, renderer: *SDL.Renderer, render_data: RenderData, text_size: SDL.Size, texture: *SDL.Texture) !GameState {
     try renderer.setColor(settings.background_color);
     try renderer.clear();
     var rect = SDL.Rectangle{ .x = 0, .y = 0, .width = 0, .height = 0 };
-    rect.width = textSize.width;
-    rect.height = textSize.height;
-    rect.x = renderData.startRenderX + @divFloor((renderData.renderSize - rect.width), 2);
-    rect.y = renderData.startRenderY + @divFloor((renderData.renderSize - rect.height), 2);
+    rect.width = text_size.width;
+    rect.height = text_size.height;
+    rect.x = render_data.start_render_x + @divFloor((render_data.render_size - rect.width), 2);
+    rect.y = render_data.start_render_y + @divFloor((render_data.render_size - rect.height), 2);
     try renderer.copy(texture.*, rect, null);
     renderer.present();
     if (input == Input.paused) {
@@ -97,8 +102,8 @@ fn updateAndRenderPaused(input: Input, renderer: *SDL.Renderer, renderData: Rend
     return GameState.paused;
 }
 
-fn updateAndRenderGame(time: u32, state: *GameStateData, rand: *std.rand.Xoshiro256, renderData: RenderData, renderer: *SDL.Renderer) !GameState {
-    var growSnake = false;
+fn updateAndRenderGame(time: u32, state: *GameStateData, rand: *std.rand.Xoshiro256, render_data: RenderData, renderer: *SDL.Renderer) !GameState {
+    var grow_snake = false;
     var rect = SDL.Rectangle{ .x = 0, .y = 0, .width = 0, .height = 0 };
     switch (state.input) {
         .paused => return GameState.paused,
@@ -118,53 +123,55 @@ fn updateAndRenderGame(time: u32, state: *GameStateData, rand: *std.rand.Xoshiro
         else => {},
     }
 
-    if (time >= state.nextStepTime) {
-        state.nextStepTime = time + settings.step_time;
+    if (time >= state.next_step_time) {
+        state.next_step_time = time + settings.step_time;
         //  move snake head
-        var headPos = state.SnakeHeadPos();
+        var head_pos = state.snakeHeadPos();
         switch (state.snake_dir) {
-            .up => headPos.y -= 1,
-            .down => headPos.y += 1,
-            .left => headPos.x -= 1,
-            .right => headPos.x += 1,
+            .up => head_pos.y -= 1,
+            .down => head_pos.y += 1,
+            .left => head_pos.x -= 1,
+            .right => head_pos.x += 1,
         }
-        if (headPos.x < 0 or headPos.x > settings.play_area_x - 1 or headPos.y < 0 or headPos.y > settings.play_area_y - 1) {
+        if (head_pos.x < 0 or head_pos.x > settings.field_width - 1 or head_pos.y < 0 or head_pos.y > settings.field_height - 1) {
             return GameState.over;
         }
 
         //  check collision
-        var snake_start_idx = getIndexFromXY(headPos.x, headPos.y);
+        var snake_start_idx = getIndexFromXY(head_pos.x, head_pos.y);
         switch (state.field[snake_start_idx]) {
             FieldState.snake => return GameState.over,
             FieldState.apple => {
-                growSnake = true;
+                grow_snake = true;
                 state.score += 1;
-                var randIndex: usize = rand.random().intRangeAtMost(usize, 0, settings.play_area_size - 1);
-                while (state.field[randIndex] != FieldState.empty) {
-                    randIndex = rand.random().intRangeAtMost(usize, 0, settings.play_area_size - 1);
+                var rand_index: usize = rand.random().intRangeAtMost(usize, 0, settings.play_area_size - 1);
+                while (state.field[rand_index] != FieldState.empty) {
+                    rand_index = rand.random().intRangeAtMost(usize, 0, settings.play_area_size - 1);
                 }
-                state.field[randIndex] = FieldState.apple;
+                state.field[rand_index] = FieldState.apple;
             },
             else => {},
         }
+        var snake_tail_idx: usize = state.snake[0];
+        // update snake in field
         state.field[snake_start_idx] = FieldState.snake;
-        var snake_tail_idx: usize = @intCast(state.snake[0]);
         state.field[snake_tail_idx] = FieldState.empty;
-        state.AdvanceSnake(growSnake, @intCast(snake_start_idx));
+        // update the in memory representation of the snake
+        state.advanceSnake(grow_snake, snake_start_idx);
         state.snake_last_moved_dir = state.snake_dir;
     }
 
     //  Render
 
-    rect.width = renderData.renderChunkSizeX;
-    rect.height = renderData.renderChunkSizeY;
+    rect.width = render_data.render_chunk_size_x;
+    rect.height = render_data.render_chunk_size_y;
 
     try renderer.setColor(settings.border_color);
     try renderer.clear();
     for (state.field, 0..) |value, idx| {
         var index: usize = idx;
-        rect.x = getXFromIndex(index) * renderData.renderChunkSizeX + renderData.startRenderX;
-        rect.y = getYFromIndex(index) * renderData.renderChunkSizeY + renderData.startRenderY;
+        rect.x = getXFromIndex(index) * render_data.render_chunk_size_x + render_data.start_render_x;
+        rect.y = getYFromIndex(index) * render_data.render_chunk_size_y + render_data.start_render_y;
         if (value == FieldState.snake) {
             try renderer.setColor(settings.snake_color);
         } else if (value == FieldState.apple) {
@@ -181,24 +188,27 @@ fn updateAndRenderGame(time: u32, state: *GameStateData, rand: *std.rand.Xoshiro
 
 fn generateRenderData(data: *RenderData, window: *SDL.Window) void {
     var size = window.getSize();
-    data.renderSize = @min(size.width, size.height);
-    data.startRenderX = @divFloor((size.width - data.renderSize), 2);
-    data.startRenderY = @divFloor((size.height - data.renderSize), 2);
-    data.renderChunkSizeX = @divFloor(data.renderSize, settings.play_area_x);
-    data.renderChunkSizeY = @divFloor(data.renderSize, settings.play_area_y);
+    data.render_size = @min(size.width, size.height);
+    data.start_render_x = @divFloor((size.width - data.render_size), 2);
+    data.start_render_y = @divFloor((size.height - data.render_size), 2);
+    data.render_chunk_size_x = @divFloor(data.render_size, settings.field_width);
+    data.render_chunk_size_y = @divFloor(data.render_size, settings.field_height);
 }
 
 fn printAllocStringToTexture(allocator: std.mem.Allocator, renderer: SDL.Renderer, comptime str: []const u8, font: SDL.ttf.Font, args: anytype) !PrintStringToTextureReturn {
-    var strSlice = try std.fmt.allocPrintZ(allocator, str, args);
-    var size = try font.sizeText(strSlice);
-    defer std.heap.page_allocator.free(strSlice);
-    var sfc = try font.renderTextSolid(strSlice, settings.font_color);
+    var string_slice = try std.fmt.allocPrintZ(allocator, str, args);
+    var size = try font.sizeText(string_slice);
+    defer std.heap.page_allocator.free(string_slice);
+    var sfc = try font.renderTextSolid(string_slice, settings.font_color);
     defer sfc.destroy();
     var texture = try SDL.createTextureFromSurface(renderer, sfc);
     return PrintStringToTextureReturn{ .texture = texture, .size = size };
 }
 
 pub fn main() !void {
+    if (settings.play_area_size > snake_empty) {
+        @panic("play area size is too large. Please reduce the field_width or field_height");
+    }
     try SDL.init(.{ .timer = true, .audio = true, .video = true, .events = true });
     defer SDL.quit();
     try SDL.ttf.init();
@@ -223,26 +233,26 @@ pub fn main() !void {
     var rand = settings.RandGen.init(@intCast(std.time.timestamp()));
     //  initialize game state
 
-    var playArea: [settings.play_area_size]FieldState = undefined;
-    for (0..playArea.len) |idx| {
-        playArea[idx] = FieldState.empty;
+    var play_area: [settings.play_area_size]FieldState = undefined;
+    for (0..play_area.len) |idx| {
+        play_area[idx] = FieldState.empty;
     }
     var snake: [settings.play_area_size]usize = undefined;
     for (0..snake.len) |idx| {
-        snake[idx] = std.math.maxInt(usize);
+        snake[idx] = snake_empty;
     }
-    var play_area_center_x = @divFloor(settings.play_area_x, 2);
-    var play_area_center_y = @divFloor(settings.play_area_y, 2);
-    var snake_index: usize = @intCast(getIndexFromXY(play_area_center_x, play_area_center_y));
-    snake[0] = @intCast(snake_index);
-    var state = GameStateData{ .score = 0, .field = &playArea, .snake_dir = Direction.up, .snake_last_moved_dir = Direction.up, .snake = &snake, .snake_head_idx = 0, .state = GameState.playing, .nextStepTime = time + settings.step_time, .input = Input.none };
+    var play_area_center_x = settings.field_width / 2;
+    var play_area_center_y = settings.field_height / 2;
+    var snake_index = getIndexFromXY(play_area_center_x, play_area_center_y);
+    snake[0] = snake_index;
+    var state = GameStateData{ .score = 0, .field = &play_area, .snake_dir = Direction.up, .snake_last_moved_dir = Direction.up, .snake = &snake, .snake_head_idx = 0, .state = GameState.playing, .next_step_time = time + settings.step_time, .input = Input.none };
 
     state.field[snake_index] = FieldState.snake;
 
     var apple_index =
         getIndexFromXY(
-        rand.random().intRangeAtMost(i32, 0, settings.play_area_x - 1),
-        rand.random().intRangeAtMost(i32, 0, settings.play_area_y - 1),
+        rand.random().intRangeAtMost(i32, 0, settings.field_width - 1),
+        rand.random().intRangeAtMost(i32, 0, settings.field_height - 1),
     );
     if (apple_index == snake_index) {
         apple_index += 1;
@@ -252,11 +262,11 @@ pub fn main() !void {
     }
     state.field[apple_index] = FieldState.apple;
 
-    var gameOverTexture: ?SDL.Texture = null;
-    var gameOverTextSize: SDL.Size = undefined;
-    var renderData = RenderData{ .renderSize = 0, .startRenderX = 0, .startRenderY = 0, .renderChunkSizeX = 0, .renderChunkSizeY = 0 };
+    var game_over_texture: ?SDL.Texture = null;
+    var game_over_text_size: SDL.Size = undefined;
+    var render_data = RenderData{ .render_size = 0, .start_render_x = 0, .start_render_y = 0, .render_chunk_size_x = 0, .render_chunk_size_y = 0 };
 
-    var pauseMessageTextureData = try printAllocStringToTexture(std.heap.page_allocator, renderer, "The game is paused. Press p to resume play", font, .{});
+    var pause_message_texture_data = try printAllocStringToTexture(std.heap.page_allocator, renderer, "The game is paused. Press p to resume play", font, .{});
 
     mainLoop: while (true) {
         //  input
@@ -281,19 +291,19 @@ pub fn main() !void {
 
         //  update
         time = SDL.getTicks();
-        generateRenderData(&renderData, &window);
+        generateRenderData(&render_data, &window);
         state.state = switch (state.state) {
-            GameState.playing => try updateAndRenderGame(time, &state, &rand, renderData, &renderer),
+            GameState.playing => try updateAndRenderGame(time, &state, &rand, render_data, &renderer),
             GameState.over => ovr: {
-                if (gameOverTexture == null) {
-                    var printedTexture = try printAllocStringToTexture(std.heap.page_allocator, renderer, "Game over. Final score: {d} points", font, .{state.score});
-                    gameOverTexture = printedTexture.texture;
-                    gameOverTextSize = printedTexture.size;
+                if (game_over_texture == null) {
+                    var printed_texture = try printAllocStringToTexture(std.heap.page_allocator, renderer, "Game over. Final score: {d} points", font, .{state.score});
+                    game_over_texture = printed_texture.texture;
+                    game_over_text_size = printed_texture.size;
                     state.input = Input.none;
                 }
-                break :ovr try updateAndRenderGameOver(state.input, &renderer, renderData, gameOverTextSize, &gameOverTexture.?);
+                break :ovr try updateAndRenderGameOver(state.input, &renderer, render_data, game_over_text_size, &game_over_texture.?);
             },
-            GameState.paused => try updateAndRenderPaused(state.input, &renderer, renderData, pauseMessageTextureData.size, &pauseMessageTextureData.texture),
+            GameState.paused => try updateAndRenderPaused(state.input, &renderer, render_data, pause_message_texture_data.size, &pause_message_texture_data.texture),
             else => break :mainLoop,
         };
     }
