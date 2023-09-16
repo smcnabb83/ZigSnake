@@ -266,7 +266,7 @@ pub fn main() !void {
     var game_over_text_size: SDL.Size = undefined;
     var render_data = RenderData{ .render_size = 0, .start_render_x = 0, .start_render_y = 0, .render_chunk_size_x = 0, .render_chunk_size_y = 0 };
 
-    var pause_message_texture_data = try printAllocStringToTexture(std.heap.page_allocator, renderer, "The game is paused. Press p to resume play", font, .{});
+    var pause_message_texture_data = try printAllocStringToTexture(std.heap.page_allocator, renderer, "The game is paused. Press p or space to resume play", font, .{});
 
     mainLoop: while (true) {
         //  input
@@ -276,12 +276,12 @@ pub fn main() !void {
                 .quit => break :mainLoop,
                 .key_down => |key| {
                     state.input = switch (key.scancode) {
-                        .q => Input.cancel,
+                        .q, .escape => Input.cancel,
                         .w, .up => Input.up,
                         .a, .left => Input.left,
                         .s, .down => Input.down,
                         .d, .right => Input.right,
-                        .p => Input.paused,
+                        .p, .space, .keypad_space => Input.paused,
                         else => Input.any,
                     };
                 },
